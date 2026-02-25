@@ -46,7 +46,7 @@ __global__ void forward(int batch_size, int n, int out_w, float *input, float *w
 	if (row<batch_size && col<out_w){
 		output[row*out_w+col] = biases[col];
 		for(int i=0;i<n;i++){
-			output[row*out_w+col] += input[i*out_w+col] * weights[row*n+i];
+			output[row*out_w+col] += weights[i*out_w+col] * input[row*n+i];
 		}
 	}
 }
@@ -58,7 +58,7 @@ __global__ void forward_relu(int batch_size, int n, int out_w, float *input, flo
         if (row<batch_size && col<out_w){
 			float out = biases[col];
 			for(int i=0;i<n;i++){
-				out += input[i*out_w+col] * weights[row*n+i];
+				out += weights[i*out_w+col] * input[row*n+i];
 			}
 		output[row*out_w+col] = out > 0.f? out : 0.f; 
         }
@@ -126,7 +126,7 @@ __global__ void backward(int batch_size, int n, int out_w, float *weights, float
 			dl += w * d_l[row*n+i];
 		}
 		float activation = activations[row*out_w+col];
-		out_d_l[row*out_w+col] = dl * (activation > 0.f ? 1.f : 0.f);
+		out_d_l[row*out_w+col] = activation > 0.f ? dl : 0.f;
 	}
 }
 
@@ -155,7 +155,7 @@ __global__ void update_layer(int w, int h, int batch_size, float lr, float *weig
 			db += dl;
 		}
 		weights[row*w+col] -= lr*dw/batch_size;
-		biases[row*w+col]  -= lr*db/batch_size;
+		biases[col]  -= lr*db/batch_size;
 	}
 }
 
@@ -237,10 +237,10 @@ int main(int argc, char **argv){
 	float *mnist_train_y  = new float[labels_size*train_length];
 	float *mnist_test_x = new float[input_size*test_length];
 	float *mnist_test_y = new float[labels_size*test_length];
-	std::ifstream fin_train("mnist_train.csv");
-	std::ifstream fin_test("mnist_test.csv");
-	read_mnist(fin_train, 0, BATCH_SIZE, mnist_train_x, mnist_train_y);
-	read_mnist(fin_test, 0, BATCH_SIZE, mnist_test_x, mnist_test_y);
+	std::ifstream fin_train("./mnist_train.csv");
+	std::ifstream fin_test("./mnist_test.csv");
+	read_mnist(fin_train, 0, train_length, mnist_train_x, mnist_train_y);
+	read_mnist(fin_test, 0, test_length, mnist_test_x, mnist_test_y);
 	fin_train.close();
 	fin_test.close();
 
@@ -368,10 +368,10 @@ int main(int argc, char **argv){
 			update_layer<<<dimGrid, dimBlock>>>(size1, input_size, BATCH_SIZE, LR, weights1, biases1, input, d_l1);
 			gpuErrchk(cudaPeekAtLastError());
 
-			if (epoch == 0 && (batch+2)*BATCH_SIZE < train_length)
-			{
-				read_mnist(fin_train, (batch+1)*BATCH_SIZE, BATCH_SIZE, mnist_train_x, mnist_train_y);
-			}
+			//if (epoch == 0 && (batch+2)*BATCH_SIZE < train_length)
+			//{
+			//	read_mnist(fin_train, (batch+1)*BATCH_SIZE, BATCH_SIZE, mnist_train_x, mnist_train_y);
+			//}
 
 			gpuErrchk(cudaMemcpy(out_h, a3, BATCH_SIZE*size3*sizeof(float), cudaMemcpyDeviceToHost));
       		gpuErrchk(cudaMemcpy(loss_h, loss, BATCH_SIZE*sizeof(float), cudaMemcpyDeviceToHost));
@@ -392,9 +392,9 @@ int main(int argc, char **argv){
 						max_2 = mnist_train_y[batch*BATCH_SIZE*labels_size + i*labels_size + j];
 						i2 = j;
 					}
-					correct += (i1==i2);
-					cum_loss += loss_h[i];
 				}
+				correct += (i1==i2);
+				cum_loss += loss_h[i];
 			}
 		}
 
@@ -433,10 +433,10 @@ int main(int argc, char **argv){
 			dimBlock = dim3(BLOCK_SIZE, 1, 1);
 			cross_entropy_loss<<<dimGrid, dimBlock>>>(size3, BATCH_SIZE, a3, labels, loss);
 
-			if (epoch == 0 && (batch+2)*BATCH_SIZE < test_length)
-			{
-				read_mnist(fin_test, (batch+1)*BATCH_SIZE, BATCH_SIZE, mnist_test_x, mnist_test_y);
-			}
+			//if (epoch == 0 && (batch+2)*BATCH_SIZE < test_length)
+			//{
+			//	read_mnist(fin_test, (batch+1)*BATCH_SIZE, BATCH_SIZE, mnist_test_x, mnist_test_y);
+			//}
 			gpuErrchk(cudaDeviceSynchronize());
 			gpuErrchk(cudaMemcpy(out_h, a3, BATCH_SIZE*size3*sizeof(float), cudaMemcpyDeviceToHost));
 			gpuErrchk(cudaMemcpy(loss_h, loss, BATCH_SIZE*sizeof(float), cudaMemcpyDeviceToHost));
@@ -448,17 +448,17 @@ int main(int argc, char **argv){
 				int i2 = 0;
 				for (int j = 0; j<labels_size; j++)
 				{
-				if (out_h[i*labels_size + j] > max_1)
-				{
-					max_1 = out_h[i*labels_size + j];
-					i1 = j;
-				}
-				
-				if (mnist_test_y[batch*BATCH_SIZE*labels_size + i*labels_size + j] > max_2)
-				{
-					max_2 = mnist_test_y[batch*BATCH_SIZE*labels_size + i*labels_size + j];
-					i2 = j;
-				}
+					if (out_h[i*labels_size + j] > max_1)
+					{
+						max_1 = out_h[i*labels_size + j];
+						i1 = j;
+					}
+					
+					if (mnist_test_y[batch*BATCH_SIZE*labels_size + i*labels_size + j] > max_2)
+					{
+						max_2 = mnist_test_y[batch*BATCH_SIZE*labels_size + i*labels_size + j];
+						i2 = j;
+					}
 				}
 				val_correct += (i1 == i2);
 				val_loss += loss_h[i];
