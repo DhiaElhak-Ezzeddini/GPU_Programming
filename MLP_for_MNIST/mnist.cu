@@ -29,10 +29,10 @@ class Timer
 		start_time = std::chrono::high_resolution_clock::now();
 	}
 	~Timer(){
-		std::cout<<name<<" took "<<std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - start_time).count()/(float)1e6<<" ms "<<std::endl;
+		std::cout<<name<<" took "<<std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_time).count()/(float)1e6<<" ms "<<std::endl;
 	}
 	private:
-	std::chrono::time_point<std::chrono::system_clock> start_time;
+	std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
 	std::string name;
 };
 
@@ -210,8 +210,8 @@ void read_mnist(std::ifstream& fin, int start, int length, float *x, float *y){
 		if (!(ss>>label)){
 			throw std::runtime_error("Failed to read label");
 		}
-		std::memset(y+labels*i,0,labels*sizeof(float));
-		y[labels*i+label] = 1.0f;
+		std::memset(y+output_size*i,0,output_size*sizeof(float));
+		y[output_size*i+label] = 1.0f;
 		float *x_row = x + i *input_size;
 		for(int j=0;j<input_size;++j){
 			ASSERT(ss.getline(&buffer[0],buffer.size(),','),"Failed to read pixel value for entry %d, pixel %d", i, j);
@@ -308,7 +308,7 @@ int main(int argc, char **argv){
 		float cum_loss = 0.f;
 		int correct = 0; 
 		int total = 0;
-		int start_time = std::chrono::high_resolution_clock::now();
+		auto start_time = std::chrono::high_resolution_clock::now();
 		for(int batch=0; batch<train_length/BATCH_SIZE; batch++){
 			total += BATCH_SIZE;
 			gpuErrchk(cudaMemcpy(input, &mnist_train_x[batch*BATCH_SIZE*input_size], BATCH_SIZE*input_size*sizeof(float), cudaMemcpyHostToDevice));
@@ -396,13 +396,15 @@ int main(int argc, char **argv){
 					cum_loss += loss_h[i];
 				}
 			}
+		}
 
-			float val_loss = 0.f;
-			int val_correct = 0;
-			int val_total = 0;
+		float val_loss = 0.f;
+		int val_correct = 0;
+		int val_total = 0;
+		
 
-			for(int batch = 0; batch<test_length/BATCH_SIZE; batch++)
-			{
+		for(int batch = 0; batch<test_length/BATCH_SIZE; batch++){
+
 			val_total += BATCH_SIZE;
 			gpuErrchk(cudaMemcpy(input, &mnist_test_x[batch*BATCH_SIZE*input_size], BATCH_SIZE*input_size*sizeof(float), cudaMemcpyHostToDevice)); 
 			gpuErrchk(cudaMemcpy(labels, &mnist_test_y[batch*BATCH_SIZE*labels_size], BATCH_SIZE*labels_size*sizeof(float), cudaMemcpyHostToDevice)); 
@@ -463,11 +465,10 @@ int main(int argc, char **argv){
 			}
 		}
 
-		float epoch_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - start_time).count();
+		auto epoch_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time).count();
 		total_time += epoch_time;
 		std::cout<<"epoch "<<epoch<<" took "<<epoch_time<<
-		"ms cum loss "<<cum_loss<<" accuracy "<<(float)correct/total<<
-		" val loss "<<val_loss<<" val accuracy "<<(float)val_correct/val_total<<std::endl;
-	}
+		"ms cum loss "<<cum_loss<<" accuracy "<<(float)correct/total<<" val loss "<<val_loss<<" val accuracy "<<(float)val_correct/val_total<<std::endl;
+		}
 	std::cout<<"finished training, total time = "<<total_time<<" ms"<<std::endl;
 }
