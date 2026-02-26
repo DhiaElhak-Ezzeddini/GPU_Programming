@@ -140,23 +140,40 @@ __global__ void relu_backward(int w, int h, int ns, float *a, float *d_l, float*
 	}
 }
 
+__global__ void update_layer(
+    int out_w,          // number of output neurons
+    int in_h,           // number of input neurons
+    int batch_size,
+    float lr,
+    float *weights,
+    float *biases,
+    float *activations, // [batch_size, in_h]
+    float *d_l          // [batch_size, out_w]
+){
+    int out_j = blockIdx.x * blockDim.x + threadIdx.x;  // output neuron
+    int in_i  = blockIdx.y * blockDim.y + threadIdx.y;  // input neuron
 
-__global__ void update_layer(int w, int h, int batch_size, float lr, float *weights, float *biases,
-							float *activations, float *d_l){
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-	int row = blockIdx.y * blockDim.y + threadIdx.y;
-    if(row<h && col<w){
-		float dw = 0.f;
-		float db = 0.f;
-		for(int i=0; i<batch_size;i++){
-			float act = activations[i*w+col];
-			float dl = d_l[i*w+col];
-			dw += act*dl;
-			db += dl;
-		}
-		weights[row*w+col] -= lr*dw/batch_size;
-		biases[col]  -= lr*db/batch_size;
-	}
+    if(in_i < in_h && out_j < out_w){
+
+        float dw = 0.f;
+
+        for(int b = 0; b < batch_size; b++){
+            float a = activations[b*in_h + in_i];
+            float dl = d_l[b*out_w + out_j];
+            dw += a * dl;
+        }
+
+        weights[in_i*out_w + out_j] -= lr * dw / batch_size;
+    }
+
+    // Update bias once per output neuron
+    if(in_i == 0 && out_j < out_w){
+        float db = 0.f;
+        for(int b = 0; b < batch_size; b++){
+            db += d_l[b*out_w + out_j];
+        }
+        biases[out_j] -= lr * db / batch_size;
+    }
 }
 
 __global__ void init_rand(int w, int h, float *out){
@@ -231,7 +248,7 @@ int main(int argc, char **argv){
 	int labels_size = 10;
 	int BLOCK_SIZE = 16;
 	int BATCH_SIZE = 64;
-	int EPOCHS = 10;
+	int EPOCHS = 100;
 	float LR = 0.03f;
 	float *mnist_train_x  = new float[input_size*train_length];
 	float *mnist_train_y  = new float[labels_size*train_length];
